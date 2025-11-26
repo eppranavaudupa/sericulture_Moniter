@@ -2,106 +2,126 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Sericulture Monitor</title>
+  <title>Sericulture Monitor — Dashboard</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; transition: background 0.5s, color 0.5s; }
-    .day { background: linear-gradient(#e0f7ff, #fff); color: #0a2239; }
-    .night { background: linear-gradient(#031528, #071b2a); color: #e6f7ff; }
-    .card { padding: 16px; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 12px; }
-    .critical { border-left: 6px solid #e74c3c; }
-    .normal { border-left: 6px solid #27ae60; }
-    .label { font-weight: 600; }
-    .value { font-size: 1.6rem; margin-top: 6px; }
-    .row { display:flex; gap: 12px; flex-wrap:wrap; }
-    .col { flex:1 1 200px; }
+    body{font-family:Inter,system-ui,Arial;margin:0;padding:20px;transition:background .3s;color:#042;}
+    header{display:flex;justify-content:space-between;align-items:center}
+    .container{max-width:980px;margin:18px auto}
+    .card{background:#fff;border-radius:10px;padding:14px;margin-bottom:12px;box-shadow:0 6px 20px rgba(2,6,23,0.06);}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .col{flex:1 1 220px}
+    .value{font-size:1.6rem;font-weight:700}
+    .label{font-size:0.9rem;color:#4a5568}
+    .danger{border-left:6px solid #e53e3e}
+    .warn{background:#fff3cd;border-left:6px solid #f6c23e}
+    .ok{border-left:6px solid #2f855a}
+    .day-bg{background:linear-gradient(180deg,#f0fbff,#ffffff)}
+    .night-bg{background:linear-gradient(180deg,#041728,#032037);color:#cfe9ff}
+    .banner{padding:10px;border-radius:8px;margin-bottom:12px}
   </style>
 </head>
-<body class="day">
-  <h1>Sericulture — Environment Monitor</h1>
-  <div id="lastUpdated" class="card"></div>
+<body class="day-bg">
+  <div class="container">
+    <header>
+      <h1>Sericulture Monitor</h1>
+      <div id="mode">Mode: —</div>
+    </header>
 
-  <div class="row">
-    <div id="tempCard" class="card col normal">
-      <div class="label">Temperature (°C)</div>
-      <div id="tempVal" class="value">--</div>
-      <div id="tempStatus"></div>
+    <div id="banner"></div>
+
+    <div class="row">
+      <div class="card col" id="tempCard">
+        <div class="label">DS18B20 Temp (°C)</div>
+        <div class="value" id="dsTemp">--</div>
+        <div id="dsLabel"></div>
+      </div>
+
+      <div class="card col" id="dhtCard">
+        <div class="label">DHT11 - Temp (°C)</div>
+        <div class="value" id="dhtTemp">--</div>
+        <div class="label">Humidity (%)</div>
+        <div class="value" id="dhtHum">--</div>
+      </div>
+
+      <div class="card col" id="soilCard">
+        <div class="label">Soil Moisture (%)</div>
+        <div class="value" id="soil">--</div>
+        <div class="label">Raw</div>
+        <div class="value" id="soilRaw">--</div>
+      </div>
     </div>
 
-    <div id="humCard" class="card col">
-      <div class="label">Humidity (%)</div>
-      <div id="humVal" class="value">--</div>
+    <div class="card" id="ldrCard">
+      <div class="label">LDR (light)</div>
+      <div class="value" id="ldr">--</div>
     </div>
 
-    <div id="soilCard" class="card col">
-      <div class="label">Soil Moisture (%)</div>
-      <div id="soilVal" class="value">--</div>
-      <div id="soilRaw"></div>
+    <div class="card" id="buzzerCard">
+      <div class="label">Buzzer</div>
+      <div class="value" id="buzzer">OFF</div>
     </div>
-  </div>
 
-  <div class="card" id="ldrCard">
-    <div class="label">Light (LDR)</div>
-    <div id="ldrVal" class="value">--</div>
-    <div id="dayNight"></div>
+    <div class="card" id="lastCard">
+      <div class="label">Last Received</div>
+      <div id="last">—</div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const tempVal = document.getElementById('tempVal');
-    const tempCard = document.getElementById('tempCard');
-    const tempStatus = document.getElementById('tempStatus');
-    const humVal = document.getElementById('humVal');
-    const soilVal = document.getElementById('soilVal');
-    const soilRaw = document.getElementById('soilRaw');
-    const ldrVal = document.getElementById('ldrVal');
-    const dayNight = document.getElementById('dayNight');
-    const lastUpdated = document.getElementById('lastUpdated');
+    const dsTempEl = document.getElementById('dsTemp');
+    const dhtTempEl = document.getElementById('dhtTemp');
+    const dhtHumEl = document.getElementById('dhtHum');
+    const soilEl = document.getElementById('soil');
+    const soilRawEl = document.getElementById('soilRaw');
+    const ldrEl = document.getElementById('ldr');
+    const lastEl = document.getElementById('last');
+    const banner = document.getElementById('banner');
+    const modeEl = document.getElementById('mode');
+    const buzzerEl = document.getElementById('buzzer');
     const body = document.body;
 
-    function applyDayNight(mode) {
-      if (mode === 'day') {
-        body.classList.remove('night'); body.classList.add('day');
-      } else {
-        body.classList.remove('day'); body.classList.add('night');
+    function showData(d) {
+      lastEl.textContent = new Date(d.receivedAt).toLocaleString();
+      dsTempEl.textContent = (d.ds18b20_temp !== undefined) ? d.ds18b20_temp.toFixed(2) : '--';
+      dhtTempEl.textContent = (d.dht_temp !== undefined) ? d.dht_temp.toFixed(2) : '--';
+      dhtHumEl.textContent = (d.dht_humidity !== undefined) ? d.dht_humidity.toFixed(2) : '--';
+      soilEl.textContent = (d.soil_percent !== undefined) ? d.soil_percent.toFixed(1) + '%' : '--';
+      soilRawEl.textContent = d.soil_raw || '--';
+      ldrEl.textContent = (d.ldr_percent !== undefined) ? d.ldr_percent.toFixed(1) + '%' : '--';
+      buzzerEl.textContent = d.buzzer_on ? 'ON' : 'OFF';
+
+      // day/night
+      let mode = (d.status && d.status.dayOrNight) ? d.status.dayOrNight : ((d.ldr_percent || 0) > 40 ? 'day' : 'night');
+      modeEl.textContent = 'Mode: ' + mode;
+      if (mode === 'day') { body.classList.remove('night-bg'); body.classList.add('day-bg'); }
+      else { body.classList.remove('day-bg'); body.classList.add('night-bg'); }
+
+      // temp level
+      const t = parseFloat(d.ds18b20_temp);
+      if (!isNaN(t)) {
+        if (t > 26.0) {
+          banner.innerHTML = '<div class="banner danger">⚠️ TOO HOT — ' + t.toFixed(2) + '°C. Dangerous for worms. Buzzer: ' + (d.buzzer_on ? 'ON' : 'OFF') + '</div>';
+          document.getElementById('tempCard').classList.add('danger');
+        } else if (t < 19.0) {
+          banner.innerHTML = '<div class="banner danger">❄️ TOO COLD — ' + t.toFixed(2) + '°C. Dangerous for worms. Buzzer: ' + (d.buzzer_on ? 'ON' : 'OFF') + '</div>';
+          document.getElementById('tempCard').classList.add('danger');
+        } else {
+          banner.innerHTML = '<div class="banner ok">Temperature normal: ' + t.toFixed(2) + '°C</div>';
+          document.getElementById('tempCard').classList.remove('danger');
+        }
       }
     }
 
-    function updateUI(data) {
-      lastUpdated.textContent = 'Last received: ' + new Date(data.receivedAt).toLocaleString();
-      tempVal.textContent = (data.temperature === undefined) ? '--' : data.temperature.toFixed(2);
-      humVal.textContent = (data.humidity === undefined) ? '--' : data.humidity.toFixed(2);
-      soilVal.textContent = (data.soil_percent === undefined) ? '--' : data.soil_percent.toFixed(1) + '%';
-      soilRaw.textContent = data.soil_raw ? ('Raw: ' + data.soil_raw) : '';
-      ldrVal.textContent = data.ldr_percent ? data.ldr_percent.toFixed(1) + '%' : (data.ldr_raw ? data.ldr_raw : '--');
-
-      // Determine day/night: prefer server computed flag, otherwise local threshold
-      let mode = (data.status && data.status.dayOrNight) ? data.status.dayOrNight : ((data.ldr_percent || 0) > 40 ? 'day' : 'night');
-      applyDayNight(mode);
-      dayNight.textContent = 'Mode: ' + mode;
-
-      // Temperature critical styling
-      if (data.status && data.status.tempCritical) {
-        tempCard.classList.remove('normal');
-        tempCard.classList.add('critical');
-        tempStatus.textContent = data.status.tempMessage || 'CRITICAL';
-      } else {
-        tempCard.classList.remove('critical');
-        tempCard.classList.add('normal');
-        tempStatus.textContent = 'Normal';
-      }
-    }
-
-    socket.on('sensor-data', (data) => {
-      console.log('sensor-data', data);
-      updateUI(data);
+    socket.on('sensor-data', (payload) => {
+      // console.log('data', payload);
+      showData(payload);
     });
 
     // fetch last reading on load
-    fetch('/api/last').then(r=>r.json()).then(d => {
-      if (Object.keys(d).length) updateUI(d);
-    }).catch(()=>{});
+    fetch('/api/last').then(r=>r.json()).then(d => { if (Object.keys(d).length) showData(d); }).catch(()=>{});
   </script>
 </body>
 </html>
