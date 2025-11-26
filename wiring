@@ -1,0 +1,55 @@
+Wiring / Pin diagram (text + ASCII)
+
+Summary pins used (on ESP32 DevKit):
+
+3.3V — power to sensors (DHT11 VCC, DS18B20 VCC, optionally soil probe VCC if module supports 3.3V)
+
+GND — common ground (all sensors + buzzer)
+
+DHT11 data → GPIO4
+
+DS18B20 data → GPIO15 with 4.7kΩ pull-up between data and 3.3V
+
+Soil AO (HW-080/AO) → GPIO35 (ADC1_CH7) (analog)
+
+LDR voltage divider → middle node → GPIO34 (ADC1_CH6) (analog)
+
+LDR + fixed resistor, typical 100k or 10k depending on bright/dim conditions
+
+Buzzer (+) → GPIO27, (–) → GND (active buzzer assumed)
+
+ASCII (simplified):
+
+ESP32 DevKit          Sensor / Module
+-----------           ---------------
+3.3V    --------------- VCC (DHT11, DS18B20 VCC, module VCC if 3.3V)
+GND     --------------- GND (all sensors + buzzer)
+GPIO4   --------------- DHT11 DATA
+GPIO15  --------------- DS18B20 DATA -----[4.7kΩ]----- 3.3V
+GPIO35  --------------- HW-080 AO (soil analog)
+GPIO34  --------------- LDR voltage divider (middle node)
+GPIO27  --------------- BUZZER +   (BUZZER - -> GND)
+
+
+LDR wiring (voltage divider):
+
+One LDR leg → 3.3V
+
+Other LDR leg → analog pin (GPIO34) and to a fixed resistor (e.g., 100k) that goes to GND.
+
+ADC reads middle node; larger ADC value = more light (depends on resistor choice). Calibrate.
+
+HW-080 (YL-69)
+
+This module has VCC, GND, AO and DO (digital). Use AO for analog percentage measurement. If board expects 5V VCC, test with 3.3V and check readings — many modules work at 3.3V. If you must use 5V, do not connect probe AO directly to ESP32 ADC without level shifting (ADC max ~3.3V)
+
+
+ESP32 DevKit          Sensor / Module
+-----------           ---------------
+3.3V    --------------- VCC (DHT11, DS18B20 VCC, module VCC if 3.3V)
+GND     --------------- GND (all sensors + buzzer)
+GPIO4   --------------- DHT11 DATA
+GPIO15  --------------- DS18B20 DATA -----[4.7kΩ]----- 3.3V
+GPIO35  --------------- HW-080 AO (soil analog)
+GPIO34  --------------- LDR voltage divider (middle node)
+GPIO27  --------------- BUZZER +   (BUZZER - -> GND)
