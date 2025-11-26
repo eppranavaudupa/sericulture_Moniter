@@ -1,73 +1,158 @@
-// ESP32 Arduino sketch
+/*
+  ESP32 Sericulture Monitor
+  - DHT11 on DHTPIN
+  - DS18B20 on ONEWIRE_PIN (with 4.7k pull-up to 3.3V)
+  - Soil probe (HW-080 / YL-69) analog -> SOIL_PIN (AO)
+  - LDR analog -> LDR_PIN
+  - Buzzer on BUZZER_PIN (active buzzer assumed; write HIGH to buzz)
+  - Sends JSON to Node backend at serverUrl every SEND_INTERVAL ms
+*/
+
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include "DHT.h"
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
-#define DHTPIN 4         // change to the pin you used
-#define DHTTYPE DHT11    // or DHT22
-#define LDR_PIN 34       // ADC1_CH6
-#define SOIL_PIN 35      // ADC1_CH7
-
+// ---------- CONFIG ----------
 const char* ssid = "u";
 const char* password = "00000000";
-const char* serverUrl = "http://172.27.45.188:3000/api/data"; // change to your server IP
+const char* serverUrl = "http://172.27.45.188 :3000/api/data"; // set your server IP
 
+#define DHTPIN 4
+#define DHTTYPE DHT11
+
+#define ONEWIRE_PIN 15
+#define SOIL_PIN 35   // ADC1_CH7
+#define LDR_PIN 34    // ADC1_CH6
+#define BUZZER_PIN 27
+
+const unsigned long SEND_INTERVAL = 30000; // 30 seconds
+const float TEMP_HIGH_THRESHOLD = 26.0; // °C -> too hot
+const float TEMP_LOW_THRESHOLD  = 19.0; // °C -> too cold
+
+// ---------- LIB INITS ----------
 DHT dht(DHTPIN, DHTTYPE);
+OneWire oneWire(ONEWIRE_PIN);
+DallasTemperature sensors(&oneWire);
+
+// Debounce counters for buzzer (require 2 consecutive readings)
+int highCount = 0;
+int lowCount = 0;
+bool buzzerState = false;
+bool lastBuzzerState = false;
+
+unsigned long lastSend = 0;
+
+// Helper: map float (0..4095) to 0..100%
+float mapPercent(int raw) {
+  // ESP32 ADC yields 0-4095 (Arduino core)
+  float p = (raw / 4095.0) * 100.0;
+  if (p < 0) p = 0;
+  if (p > 100) p = 100;
+  return p;
+}
 
 void setup() {
   Serial.begin(115200);
+  delay(500);
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
   dht.begin();
+  sensors.begin();
+
+  analogReadResolution(12); // 0..4095
+  analogSetPinAttenuation(SOIL_PIN, ADC_11db);
+  analogSetPinAttenuation(LDR_PIN, ADC_11db);
+
   WiFi.begin(ssid, password);
   Serial.print("Connecting WiFi");
+  unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+    delay(300);
     Serial.print(".");
+    if (millis() - start > 20000) {
+      Serial.println("\nWiFi connect timed out - continuing and will retry later");
+      break;
+    }
   }
-  Serial.println("\nConnected");
-  analogSetPinAttenuation(LDR_PIN, ADC_11db);   // for full range
-  analogSetPinAttenuation(SOIL_PIN, ADC_11db);
-}
-
-float mapFloat(float x, float in_min, float in_max, float out_min, float out_max){
-  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected. IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nNot connected to WiFi.");
+  }
+  lastSend = millis();
 }
 
 void loop() {
-  // Read DHT
-  float humidity = dht.readHumidity();
-  float temperature = dht.readTemperature(); // Celsius
+  // Read sensors
+  float dhtHumidity = NAN, dhtTemp = NAN, dsTemp = NAN;
+  dhtHumidity = dht.readHumidity();
+  dhtTemp = dht.readTemperature();
 
-  // Read LDR and soil
-  int ldr_raw = analogRead(LDR_PIN);
+  sensors.requestTemperatures();
+  dsTemp = sensors.getTempCByIndex(0); // first DS18B20 on bus
+
   int soil_raw = analogRead(SOIL_PIN);
+  int ldr_raw  = analogRead(LDR_PIN);
 
-  // Map ADC (0-4095) to 0-100% roughly (calibrate in practice)
-  float ldr_percent = mapFloat(ldr_raw, 0, 4095, 0, 100);
-  float soil_percent = mapFloat(soil_raw, 0, 4095, 0, 100);
+  float soil_percent = mapPercent(soil_raw);
+  float ldr_percent  = mapPercent(ldr_raw);
 
-  // Compose JSON
+  // Decide buzzer based on DS18B20 (digital probe)
+  bool tooHot = false, tooCold = false;
+  if (!isnan(dsTemp)) {
+    if (dsTemp > TEMP_HIGH_THRESHOLD) tooHot = true;
+    if (dsTemp < TEMP_LOW_THRESHOLD) tooCold = true;
+  }
+
+  // simple debounce / require 2 consecutive readings
+  if (tooHot) { highCount++; } else { highCount = 0; }
+  if (tooCold) { lowCount++; } else { lowCount = 0; }
+
+  bool newBuzzer = buzzerState;
+  if (highCount >= 2) { newBuzzer = true; }
+  else if (lowCount >= 2) { newBuzzer = true; }
+  else if (highCount == 0 && lowCount == 0) { newBuzzer = false; } // back to normal
+
+  buzzerState = newBuzzer;
+  if (buzzerState) digitalWrite(BUZZER_PIN, HIGH); else digitalWrite(BUZZER_PIN, LOW);
+
+  // Prepare JSON
   String payload = "{";
-  payload += "\"temperature\":" + String(temperature, 2) + ",";
-  payload += "\"humidity\":" + String(humidity, 2) + ",";
+  payload += "\"dht_temp\":" + String(isnan(dhtTemp) ? 0.0 : dhtTemp, 2) + ",";
+  payload += "\"dht_humidity\":" + String(isnan(dhtHumidity) ? 0.0 : dhtHumidity, 2) + ",";
+  payload += "\"ds18b20_temp\":" + String(isnan(dsTemp) ? 0.0 : dsTemp, 2) + ",";
+  payload += "\"soil_raw\":" + String(soil_raw) + ",";
+  payload += "\"soil_percent\":" + String(soil_percent, 2) + ",";
   payload += "\"ldr_raw\":" + String(ldr_raw) + ",";
   payload += "\"ldr_percent\":" + String(ldr_percent, 2) + ",";
-  payload += "\"soil_raw\":" + String(soil_raw) + ",";
-  payload += "\"soil_percent\":" + String(soil_percent, 2);
+  payload += "\"buzzer_on\":" + String(buzzerState ? "true" : "false");
   payload += "}";
 
   Serial.println("Payload: " + payload);
 
-  if(WiFi.status() == WL_CONNECTED) {
+  // POST to server (only if connected)
+  if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
     http.begin(serverUrl);
     http.addHeader("Content-Type", "application/json");
-    int httpResponseCode = http.POST(payload);
-    Serial.print("HTTP resp: ");
-    Serial.println(httpResponseCode);
+    int code = http.POST(payload);
+    Serial.print("HTTP code: "); Serial.println(code);
     http.end();
   } else {
-    Serial.println("WiFi not connected");
+    Serial.println("WiFi not connected, skipping POST");
+    // try to reconnect quietly
+    if (WiFi.status() != WL_CONNECTED) {
+      WiFi.reconnect();
+    }
   }
 
-  delay(60000); // send every 60s (adjust as needed)
+  // Wait until next sample
+  unsigned long waitUntil = lastSend + SEND_INTERVAL;
+  lastSend = millis();
+  delay(SEND_INTERVAL);
 }
