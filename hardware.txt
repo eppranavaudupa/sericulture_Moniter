@@ -1,0 +1,73 @@
+// ESP32 Arduino sketch
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include "DHT.h"
+
+#define DHTPIN 4         // change to the pin you used
+#define DHTTYPE DHT11    // or DHT22
+#define LDR_PIN 34       // ADC1_CH6
+#define SOIL_PIN 35      // ADC1_CH7
+
+const char* ssid = "u";
+const char* password = "00000000";
+const char* serverUrl = "http://172.27.45.188:3000/api/data"; // change to your server IP
+
+DHT dht(DHTPIN, DHTTYPE);
+
+void setup() {
+  Serial.begin(115200);
+  dht.begin();
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConnected");
+  analogSetPinAttenuation(LDR_PIN, ADC_11db);   // for full range
+  analogSetPinAttenuation(SOIL_PIN, ADC_11db);
+}
+
+float mapFloat(float x, float in_min, float in_max, float out_min, float out_max){
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+void loop() {
+  // Read DHT
+  float humidity = dht.readHumidity();
+  float temperature = dht.readTemperature(); // Celsius
+
+  // Read LDR and soil
+  int ldr_raw = analogRead(LDR_PIN);
+  int soil_raw = analogRead(SOIL_PIN);
+
+  // Map ADC (0-4095) to 0-100% roughly (calibrate in practice)
+  float ldr_percent = mapFloat(ldr_raw, 0, 4095, 0, 100);
+  float soil_percent = mapFloat(soil_raw, 0, 4095, 0, 100);
+
+  // Compose JSON
+  String payload = "{";
+  payload += "\"temperature\":" + String(temperature, 2) + ",";
+  payload += "\"humidity\":" + String(humidity, 2) + ",";
+  payload += "\"ldr_raw\":" + String(ldr_raw) + ",";
+  payload += "\"ldr_percent\":" + String(ldr_percent, 2) + ",";
+  payload += "\"soil_raw\":" + String(soil_raw) + ",";
+  payload += "\"soil_percent\":" + String(soil_percent, 2);
+  payload += "}";
+
+  Serial.println("Payload: " + payload);
+
+  if(WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
+    int httpResponseCode = http.POST(payload);
+    Serial.print("HTTP resp: ");
+    Serial.println(httpResponseCode);
+    http.end();
+  } else {
+    Serial.println("WiFi not connected");
+  }
+
+  delay(60000); // send every 60s (adjust as needed)
+}
