@@ -28,8 +28,8 @@ const char* serverUrl = "http://172.27.45.188 :3000/api/data"; // set your serve
 #define BUZZER_PIN 27
 
 const unsigned long SEND_INTERVAL = 30000; // 30 seconds
-const float TEMP_HIGH_THRESHOLD = 26.0; // °C -> too hot
-const float TEMP_LOW_THRESHOLD  = 19.0; // °C -> too cold
+const float TEMP_HIGH_THRESHOLD = 30.0; // °C -> too hot
+const float TEMP_LOW_THRESHOLD  = 25.0; // °C -> too cold
 
 // ---------- LIB INITS ----------
 DHT dht(DHTPIN, DHTTYPE);
@@ -55,7 +55,7 @@ float mapPercent(int raw) {
 
 void setup() {
   Serial.begin(115200);
-  delay(500);
+  delay(300);
 
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);

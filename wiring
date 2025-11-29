@@ -53,3 +53,8 @@ GPIO15  --------------- DS18B20 DATA -----[4.7kΩ]----- 3.3V
 GPIO35  --------------- HW-080 AO (soil analog)
 GPIO34  --------------- LDR voltage divider (middle node)
 GPIO27  --------------- BUZZER +   (BUZZER - -> GND)
+
+To connect a DS18B20 sensor to an ESP32, connect the sensor's VCC pin to the
+ESP32's 3.3V pin, the GND pin to a ground pin, and the data (DQ) pin to an 
+ESP32 GPIO pin (e.g., GPIO4). You must also add a 4.7kΩ pull-up resistor
+between the data pin and the 3.3V power line
